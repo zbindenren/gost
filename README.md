@@ -2,7 +2,7 @@
 Gist client in go
 
 # Installation
-```
+```shell
 go get github.com/zbindenren/gost
 ```
 
@@ -10,11 +10,11 @@ go get github.com/zbindenren/gost
 
 ## Add Gist
 ```
-gost -a -d "my cool gist" main.go                                                                                                                  ⏎
+gost -a -d "my cool gist" main.go
 ```
 or
 ```
-gost -a -d "other gist" file1.txt file2.txt file3.txt                                                                                                                 ⏎
+gost -a -d "other gist" file1.txt file2.txt file3.txt
 ```
 ## List Gists
 ```
