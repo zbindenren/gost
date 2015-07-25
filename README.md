@@ -53,3 +53,8 @@ gost -b 8aeaae66d4b6bde78371
 ```
 gost -rm 8aeaae66d4b6bde78371
 ```
+
+# TODO
+* change to codecangstas cli
+* better update support (check if file already exist, etc)
+* better list support (list files of gist)
