@@ -109,7 +109,7 @@ func New(cfg *configuration.Configuration) Client {
 	return Client{cfg: cfg}
 }
 
-//List gets the users gists
+//List gets all the users gists
 func (g *Client) List() ([]GetResponse, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -212,7 +212,7 @@ func (g *Client) Delete(id string) error {
 
 //Download a gist
 func (g *Client) Download(id string) error {
-	r, err := g.download(id)
+	r, err := g.Get(id)
 	if err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func (g *Client) Download(id string) error {
 
 //ViewBrowser opens a browser for the gist
 func (g *Client) ViewBrowser(id string) error {
-	r, err := g.download(id)
+	r, err := g.Get(id)
 	if err != nil {
 		return err
 	}
@@ -236,7 +236,7 @@ func (g *Client) ViewBrowser(id string) error {
 
 //View prints the contents of a gist to stdout
 func (g *Client) View(id string, name string) error {
-	r, err := g.download(id)
+	r, err := g.Get(id)
 	if err != nil {
 		return err
 	}
@@ -253,7 +253,7 @@ func (g *Client) View(id string, name string) error {
 	return nil
 }
 
-func (g *Client) download(id string) (*GetResponse, error) {
+func (g *Client) Get(id string) (*GetResponse, error) {
 	req, err := http.NewRequest("GET", url+"/"+id, nil)
 	if err != nil {
 		return nil, err
