@@ -29,14 +29,17 @@ func main() {
 
 	client := gist.New(c)
 
-	list := flag.Bool("l", false, "list gists")
+	// flag parsing
 	add := flag.Bool("a", false, "add gist")
-	remove := flag.Bool("rm", false, "remove gist")
-	save := flag.Bool("s", false, "save gist")
-	view := flag.Bool("v", false, "view gist")
 	browser := flag.Bool("b", false, "view gist browser")
 	description := flag.String("d", "", "description")
+	list := flag.Bool("l", false, "list gists")
+	remove := flag.Bool("rm", false, "remove gist")
+	save := flag.Bool("s", false, "save gist")
+	update := flag.Bool("u", false, "update gist")
+	view := flag.Bool("v", false, "view gist")
 	flag.Parse()
+
 	if *list {
 		gists, err := client.List()
 		if err != nil {
@@ -57,6 +60,17 @@ func main() {
 			log.Fatal("no files given")
 		}
 		err := client.Post(*description, flag.Args())
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	if *update {
+		if len(flag.Args()) < 2 {
+			log.Fatal("gist id and file minimum required")
+		}
+		err := client.Update(flag.Args()[0], flag.Args()[1:])
 		if err != nil {
 			log.Fatal(err)
 		}

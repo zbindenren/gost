@@ -167,14 +167,13 @@ func (g *Client) Post(description string, filesPath []string) error {
 }
 
 //Update updates a gist
-func (g *Client) Update(id string, description string, filesPath []string) error {
+func (g *Client) Update(id string, filesPath []string) error {
 	files, err := createFiles(filesPath)
 	if err != nil {
 		return err
 	}
 
 	gist := PatchData{
-		Desc:  description,
 		Files: files,
 	}
 
