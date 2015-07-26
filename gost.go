@@ -32,48 +32,26 @@ func main() {
 
 	app := cli.NewApp()
 	app.Version = "1"
-	app.Name = "gost"
 	app.Usage = "utility to interact with your gists"
-	// app.Flags = []cli.Flag{
-	// cli.BoolFlag{
-	// Name:  "test",
-	// Usage: "test",
-	// },
-	// }
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "description, d",
+			Usage: "gist description",
+		},
+	}
+	app.Action = func(c *cli.Context) {
+		if len(c.Args()) == 0 {
+			log.Fatal("please specify files to use")
+		}
+		err := client.Post(c.GlobalString("description"), c.Args())
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
 	app.Commands = []cli.Command{
 		{
-			Name:  "create",
-			Usage: "create new gist",
-			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:  "description",
-					Usage: "gist description",
-					Value: "",
-				},
-				cli.StringFlag{
-					Name:  "directory",
-					Usage: "use files from directory",
-					Value: "",
-				},
-			},
-			Action: func(c *cli.Context) {
-				if c.IsSet("directory") {
-					log.Fatal("directory option not implemented yet")
-				} else {
-					if len(c.Args()) == 0 {
-						log.Fatal("no files given")
-					}
-					err := client.Post(c.String("description"), c.Args())
-					if err != nil {
-						log.Fatal(err)
-					}
-				}
-				return
-			},
-		},
-		{
-			Name:  "list",
-			Usage: "list your gists or files",
+			Name:  "ls",
+			Usage: "list your gists or files in a gist",
 			Action: func(c *cli.Context) {
 				if len(c.Args()) == 0 {
 					gists, err := client.List()
@@ -99,11 +77,11 @@ func main() {
 			},
 		},
 		{
-			Name:  "delete",
-			Usage: "delete gist or file",
+			Name:  "rm",
+			Usage: "delete gist or file in a gist",
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:  "file",
+					Name:  "file, f",
 					Usage: "deletes file",
 					Value: "",
 				},
@@ -112,28 +90,24 @@ func main() {
 				if len(c.Args()) == 0 {
 					log.Fatal("please specify a gist id")
 				}
-				if c.IsSet("file") {
-					log.Fatal("file delete not implemented yet")
-				} else {
-					err := client.Delete(c.Args().First())
-					if err != nil {
-						log.Fatal(err)
-					}
+				err := client.Delete(c.Args().First(), c.String("file"))
+				if err != nil {
+					log.Fatal(err)
 				}
 				return
 			},
 		},
 		{
-			Name:  "view",
+			Name:  "cat",
 			Usage: "view gists",
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:  "file",
-					Usage: "specify file",
+					Name:  "file, f",
+					Usage: "specify file name",
 					Value: "",
 				},
 				cli.BoolFlag{
-					Name:  "browser",
+					Name:  "browser, b",
 					Usage: "view in browser",
 				},
 			},
@@ -156,31 +130,20 @@ func main() {
 			},
 		},
 		{
-			Name: "save",
+			Name: "get",
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:  "destdir",
-					Usage: "destination directory",
-					Value: "",
-				},
-				cli.StringFlag{
-					Name:  "file",
-					Usage: "specify file",
+					Name:  "file, f",
+					Usage: "specify file name",
 					Value: "",
 				},
 			},
-			Usage: "save gist or file",
+			Usage: "download gist or file",
 			Action: func(c *cli.Context) {
-				if c.IsSet("file") {
-					log.Fatal("file delete not implemented yet")
-				}
-				if c.IsSet("destdir") {
-					log.Fatal("destdir not implemented yet")
-				}
 				if len(c.Args()) == 0 {
-					log.Fatal("no id given")
+					log.Fatal("gist id missing")
 				}
-				err := client.Download(c.Args().First())
+				err := client.Download(c.Args().First(), c.String("file"))
 				if err != nil {
 					log.Fatal(err)
 				}
@@ -188,24 +151,27 @@ func main() {
 			},
 		},
 		{
-			Name:  "update",
+			Name: "update",
+			Flags: []cli.Flag{
+				cli.StringSliceFlag{
+					Name:  "file, f",
+					Usage: "specify file name(s)",
+				},
+			},
 			Usage: "updates gists",
 			Action: func(c *cli.Context) {
-				log.Fatal("not impolemented yet")
+				if len(c.Args()) == 0 {
+					log.Fatal("gist id missing")
+				}
+				if len(c.StringSlice("file")) == 0 && !c.GlobalIsSet("description") {
+					log.Fatal("file name missing")
+				}
+				err := client.Update(c.Args().First(), c.GlobalString("description"), c.StringSlice("file"))
+				if err != nil {
+					log.Fatal(err)
+				}
 			},
 		},
 	}
 	app.Run(os.Args)
-
-	// 	if *update {
-	// 		if len(flag.Args()) < 2 {
-	// 			log.Fatal("gist id and file minimum required")
-	// 		}
-	// 		err := client.Update(flag.Args()[0], flag.Args()[1:])
-	// 		if err != nil {
-	// 			log.Fatal(err)
-	// 		}
-	// 		return
-	// 	}
-
 }

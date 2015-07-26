@@ -20,22 +20,22 @@ var (
 
 //GetResponse is used to unmarshal the get response
 type GetResponse struct {
-	Comments    int                    `json:"comments"`
-	CommentsURL string                 `json:"comments_url"`
-	CommitsURL  string                 `json:"commits_url"`
-	CreatedAt   string                 `json:"created_at"`
-	Description string                 `json:"description"`
-	Files       map[string]fileDetails `json:"files"`
-	ForksURL    string                 `json:"forks_url"`
-	GitPullURL  string                 `json:"git_pull_url"`
-	GitPushURL  string                 `json:"git_push_url"`
-	HTMLURL     string                 `json:"html_url"`
-	ID          string                 `json:"id"`
-	Owner       owner                  `json:"owner"`
-	Public      bool                   `json:"public"`
-	UpdatedAt   string                 `json:"updated_at"`
-	URL         string                 `json:"url"`
-	User        interface{}            `json:"user"`
+	Comments    int                     `json:"comments"`
+	CommentsURL string                  `json:"comments_url"`
+	CommitsURL  string                  `json:"commits_url"`
+	CreatedAt   string                  `json:"created_at"`
+	Description string                  `json:"description"`
+	Files       map[string]*fileDetails `json:"files"`
+	ForksURL    string                  `json:"forks_url"`
+	GitPullURL  string                  `json:"git_pull_url"`
+	GitPushURL  string                  `json:"git_push_url"`
+	HTMLURL     string                  `json:"html_url"`
+	ID          string                  `json:"id"`
+	Owner       owner                   `json:"owner"`
+	Public      bool                    `json:"public"`
+	UpdatedAt   string                  `json:"updated_at"`
+	URL         string                  `json:"url"`
+	User        interface{}             `json:"user"`
 }
 
 // OpenInBrowser opens the current gist response in a browser
@@ -84,15 +84,15 @@ type owner struct {
 
 //PostData is used to marshal the post request
 type PostData struct {
-	Desc   string          `json:"description"`
-	Public bool            `json:"public"`
-	Files  map[string]file `json:"files"`
+	Desc   string           `json:"description"`
+	Public bool             `json:"public"`
+	Files  map[string]*file `json:"files"`
 }
 
 //PatchData is used to marshal the patch request
 type PatchData struct {
-	Desc  string          `json:"description"`
-	Files map[string]file `json:"files"`
+	Desc  string           `json:"description"`
+	Files map[string]*file `json:"files"`
 }
 
 type file struct {
@@ -167,59 +167,82 @@ func (g *Client) Post(description string, filesPath []string) error {
 }
 
 //Update updates a gist
-func (g *Client) Update(id string, filesPath []string) error {
+func (g *Client) Update(id string, description string, filesPath []string) error {
+	gist, err := g.Get(id)
+	if err != nil {
+		return err
+	}
 	files, err := createFiles(filesPath)
 	if err != nil {
 		return err
 	}
 
-	gist := PatchData{
-		Files: files,
+	d := gist.Description
+	if len(description) > 0 {
+		d = description
 	}
-
-	// encode json
-	b, err := json.Marshal(gist)
-	if err != nil {
-		return err
+	patchdata := PatchData{
+		Desc: d,
 	}
-
-	req, err := http.NewRequest("PATCH", url+"/"+id, bytes.NewBuffer(b))
-	if err != nil {
-		return err
+	if len(filesPath) > 0 {
+		patchdata.Files = files
 	}
-	req.Header.Set("Authorization", "token "+g.cfg.Token)
-	_, err = client.Do(req)
-	if err != nil {
-		return err
-	}
-	return nil
+	return g.patch(id, patchdata)
 }
 
 //Delete deletes a gist
-func (g *Client) Delete(id string) error {
+func (g *Client) Delete(id string, fileName string) error {
 
-	req, err := http.NewRequest("DELETE", url+"/"+id, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "token "+g.cfg.Token)
-	_, err = client.Do(req)
-	if err != nil {
-		return err
+	if len(fileName) == 0 {
+		req, err := http.NewRequest("DELETE", url+"/"+id, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "token "+g.cfg.Token)
+		_, err = client.Do(req)
+		if err != nil {
+			return err
+		}
+	} else {
+		gist, err := g.Get(id)
+		if err != nil {
+			return err
+		}
+		patchdata := PatchData{}
+		patchdata.Desc = gist.Description
+		patchdata.Files = make(map[string]*file)
+		for key, val := range gist.Files {
+			if key == fileName {
+				patchdata.Files[fileName] = nil
+			} else {
+				patchdata.Files[key] = new(file)
+				patchdata.Files[key].Content = val.Content
+			}
+		}
+		return g.patch(id, patchdata)
 	}
 	return nil
 }
 
 //Download a gist
-func (g *Client) Download(id string) error {
+func (g *Client) Download(id string, name string) error {
 	r, err := g.Get(id)
 	if err != nil {
 		return err
 	}
 	for _, file := range r.Files {
-		err := ioutil.WriteFile(file.FileName, []byte(file.Content), 0660)
-		if err != nil {
-			return err
+		if len(name) == 0 {
+			err := ioutil.WriteFile(file.FileName, []byte(file.Content), 0660)
+			if err != nil {
+				return err
+			}
+		} else {
+			if file.FileName == name {
+				err := ioutil.WriteFile(file.FileName, []byte(file.Content), 0660)
+				if err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -246,6 +269,7 @@ func (g *Client) View(id string, name string) error {
 			fmt.Println(file.Content)
 		} else {
 			if file.FileName == name {
+				fmt.Println(file.FileName + ":")
 				fmt.Println(file.Content)
 			}
 		}
@@ -283,15 +307,34 @@ func (g *Client) Get(id string) (*GetResponse, error) {
 
 }
 
-func createFiles(filesPath []string) (map[string]file, error) {
-	files := make(map[string]file)
+func (g *Client) patch(id string, gist PatchData) error {
+	// encode json
+	b, err := json.Marshal(gist)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("PATCH", url+"/"+id, bytes.NewBuffer(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "token "+g.cfg.Token)
+	_, err = client.Do(req)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func createFiles(filesPath []string) (map[string]*file, error) {
+	files := make(map[string]*file)
 	for _, f := range filesPath {
 		content, err := ioutil.ReadFile(f)
 		if err != nil {
 			return files, err
 		}
 		fileName := path.Base(f)
-		files[fileName] = file{Content: string(content)}
+		files[fileName] = &file{Content: string(content)}
 	}
 	return files, nil
 }
