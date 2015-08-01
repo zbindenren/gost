@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os/exec"
@@ -13,29 +14,28 @@ import (
 	"github.com/zbindenren/gost/configuration"
 )
 
-var (
-	url    = "https://api.github.com/gists"
-	client = new(http.Client)
+const (
+	url = "https://api.github.com/gists"
 )
 
 //GetResponse is used to unmarshal the get response
 type GetResponse struct {
-	Comments    int                     `json:"comments"`
-	CommentsURL string                  `json:"comments_url"`
-	CommitsURL  string                  `json:"commits_url"`
-	CreatedAt   string                  `json:"created_at"`
-	Description string                  `json:"description"`
-	Files       map[string]*fileDetails `json:"files"`
-	ForksURL    string                  `json:"forks_url"`
-	GitPullURL  string                  `json:"git_pull_url"`
-	GitPushURL  string                  `json:"git_push_url"`
-	HTMLURL     string                  `json:"html_url"`
-	ID          string                  `json:"id"`
-	Owner       owner                   `json:"owner"`
-	Public      bool                    `json:"public"`
-	UpdatedAt   string                  `json:"updated_at"`
-	URL         string                  `json:"url"`
-	User        interface{}             `json:"user"`
+	Comments    int              `json:"comments"`
+	CommentsURL string           `json:"comments_url"`
+	CommitsURL  string           `json:"commits_url"`
+	CreatedAt   string           `json:"created_at"`
+	Description string           `json:"description"`
+	Files       map[string]*file `json:"files"`
+	ForksURL    string           `json:"forks_url"`
+	GitPullURL  string           `json:"git_pull_url"`
+	GitPushURL  string           `json:"git_push_url"`
+	HTMLURL     string           `json:"html_url"`
+	ID          string           `json:"id"`
+	Owner       owner            `json:"owner"`
+	Public      bool             `json:"public"`
+	UpdatedAt   string           `json:"updated_at"`
+	URL         string           `json:"url"`
+	User        interface{}      `json:"user"`
 }
 
 // OpenInBrowser opens the current gist response in a browser
@@ -54,80 +54,25 @@ func (g *GetResponse) OpenInBrowser() error {
 	return err
 }
 
-type fileDetails struct {
-	FileName string `json:"filename"`
-	Type     string `json:"type"`
-	Language string `json:"language"`
-	RawURL   string `json:"raw_url"`
-	Size     int    `json:"size"`
-	Content  string `json:"content"`
-}
-type owner struct {
-	AvatarURL         string `json:"avatar_url"`
-	EventsURL         string `json:"events_url"`
-	FollowersURL      string `json:"followers_url"`
-	FollowingURL      string `json:"following_url"`
-	GistsURL          string `json:"gists_url"`
-	GravatarID        string `json:"gravatar_id"`
-	HTMLURL           string `json:"html_url"`
-	ID                int    `json:"id"`
-	Login             string `json:"login"`
-	OrganizationsURL  string `json:"organizations_url"`
-	ReceivedEventsURL string `json:"received_events_url"`
-	ReposURL          string `json:"repos_url"`
-	SiteAdmin         bool   `json:"site_admin"`
-	StarredURL        string `json:"starred_url"`
-	SubscriptionsURL  string `json:"subscriptions_url"`
-	Type              string `json:"type"`
-	URL               string `json:"url"`
-}
-
-//PostData is used to marshal the post request
-type PostData struct {
-	Desc   string           `json:"description"`
-	Public bool             `json:"public"`
-	Files  map[string]*file `json:"files"`
-}
-
-//PatchData is used to marshal the patch request
-type PatchData struct {
-	Desc  string           `json:"description"`
-	Files map[string]*file `json:"files"`
-}
-
-type file struct {
-	Content string `json:"content"`
-}
-
 //Client is used to interact with the github api for gists
 type Client struct {
 	cfg *configuration.Configuration
+	cl  *http.Client
 }
 
 //New creates a new Client
 func New(cfg *configuration.Configuration) Client {
-	return Client{cfg: cfg}
+	return Client{cfg: cfg, cl: new(http.Client)}
 }
 
 //List gets all the users gists
 func (g *Client) List() ([]GetResponse, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "token "+g.cfg.Token)
-	res, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	req, err := g.newRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 	gists := []GetResponse{}
-	err = json.Unmarshal(body, &gists)
+	err = g.do(req, &gists)
 	if err != nil {
 		return nil, err
 	}
@@ -141,25 +86,14 @@ func (g *Client) Post(description string, filesPath []string) error {
 		return err
 	}
 
-	gist := PostData{
-		Desc:   description,
-		Public: !g.cfg.Private,
-		Files:  files,
-	}
-
-	// encode json
-	b, err := json.Marshal(gist)
-	if err != nil {
-		return err
-	}
+	gist := postData{Desc: description, Public: !g.cfg.Private, Files: files}
 
 	// post json
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(b))
+	req, err := g.newRequest("POST", url, gist)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "token "+g.cfg.Token)
-	_, err = client.Do(req)
+	err = g.do(req, nil)
 	if err != nil {
 		return err
 	}
@@ -181,7 +115,7 @@ func (g *Client) Update(id string, description string, filesPath []string) error
 	if len(description) > 0 {
 		d = description
 	}
-	patchdata := PatchData{
+	patchdata := postData{
 		Desc: d,
 	}
 	if len(filesPath) > 0 {
@@ -194,12 +128,11 @@ func (g *Client) Update(id string, description string, filesPath []string) error
 func (g *Client) Delete(id string, fileName string) error {
 
 	if len(fileName) == 0 {
-		req, err := http.NewRequest("DELETE", url+"/"+id, nil)
+		req, err := g.newRequest("DELETE", url+"/"+id, nil)
 		if err != nil {
 			return err
 		}
-		req.Header.Set("Authorization", "token "+g.cfg.Token)
-		_, err = client.Do(req)
+		err = g.do(req, nil)
 		if err != nil {
 			return err
 		}
@@ -208,7 +141,7 @@ func (g *Client) Delete(id string, fileName string) error {
 		if err != nil {
 			return err
 		}
-		patchdata := PatchData{}
+		patchdata := postData{}
 		patchdata.Desc = gist.Description
 		patchdata.Files = make(map[string]*file)
 		for key, val := range gist.Files {
@@ -277,49 +210,100 @@ func (g *Client) View(id string, name string) error {
 	return nil
 }
 
+//Get fetches information for a gist with an id
 func (g *Client) Get(id string) (*GetResponse, error) {
-	req, err := http.NewRequest("GET", url+"/"+id, nil)
+	req, err := g.newRequest("GET", url+"/"+id, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "token "+g.cfg.Token)
-	res, err := client.Do(req)
+	r := new(GetResponse)
+	err = g.do(req, r)
 	if err != nil {
 		return nil, err
 	}
-
-	body, err := ioutil.ReadAll(res.Body)
-	res.Body.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("could not download gists, code: %d, body: %s", res.StatusCode, body)
-	}
-
-	var r GetResponse
-	err = json.Unmarshal(body, &r)
-	if err != nil {
-		return nil, err
-	}
-	return &r, nil
-
+	return r, nil
 }
 
-func (g *Client) patch(id string, gist PatchData) error {
-	// encode json
-	b, err := json.Marshal(gist)
-	if err != nil {
-		return err
-	}
+type file struct {
+	FileName string `json:"filename,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Language string `json:"language,omitempty"`
+	RawURL   string `json:"raw_url,omitempty"`
+	Size     int    `json:"size,omitempty"`
+	Content  string `json:"content"`
+}
 
-	req, err := http.NewRequest("PATCH", url+"/"+id, bytes.NewBuffer(b))
+type owner struct {
+	AvatarURL         string `json:"avatar_url"`
+	EventsURL         string `json:"events_url"`
+	FollowersURL      string `json:"followers_url"`
+	FollowingURL      string `json:"following_url"`
+	GistsURL          string `json:"gists_url"`
+	GravatarID        string `json:"gravatar_id"`
+	HTMLURL           string `json:"html_url"`
+	ID                int    `json:"id"`
+	Login             string `json:"login"`
+	OrganizationsURL  string `json:"organizations_url"`
+	ReceivedEventsURL string `json:"received_events_url"`
+	ReposURL          string `json:"repos_url"`
+	SiteAdmin         bool   `json:"site_admin"`
+	StarredURL        string `json:"starred_url"`
+	SubscriptionsURL  string `json:"subscriptions_url"`
+	Type              string `json:"type"`
+	URL               string `json:"url"`
+}
+
+type postData struct {
+	Desc   string           `json:"description"`
+	Public bool             `json:"public,omitempty"`
+	Files  map[string]*file `json:"files"`
+}
+
+func (g *Client) newRequest(method string, url string, postData interface{}) (*http.Request, error) {
+	var bu io.Reader
+	if postData != nil {
+		b, err := json.Marshal(postData)
+		if err != nil {
+			return nil, err
+		}
+		bu = bytes.NewBuffer(b)
+	}
+	req, err := http.NewRequest(method, url, bu)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Authorization", "token "+g.cfg.Token)
-	_, err = client.Do(req)
+	return req, nil
+}
+
+func (g *Client) do(req *http.Request, responseData interface{}) error {
+	res, err := g.cl.Do(req)
+	if err != nil {
+		return err
+	}
+	if res.StatusCode >= 300 {
+		return fmt.Errorf("request failed, code=%d, message=%s", res.StatusCode, res.Body)
+	}
+	if responseData != nil {
+		defer res.Body.Close()
+		body, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal(body, responseData)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (g *Client) patch(id string, gist postData) error {
+	req, err := g.newRequest("PATCH", url+"/"+id, gist)
+	if err != nil {
+		return err
+	}
+	err = g.do(req, nil)
 	if err != nil {
 		return err
 	}
