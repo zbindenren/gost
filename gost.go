@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/codegangsta/cli"
 	"github.com/zbindenren/gost/configuration"
@@ -12,6 +13,8 @@ import (
 )
 
 func main() {
+	w := new(tabwriter.Writer)
+	w.Init(os.Stdout, 0, 8, 0, '\t', 0)
 	c, err := configuration.LoadConfiguration()
 	if err != nil {
 		if err == configuration.ErrNoConfigFound {
@@ -63,16 +66,18 @@ func main() {
 						for _, f := range g.Files {
 							files = append(files, f.FileName)
 						}
-						fmt.Printf("%s %20s - %s\n", g.ID, strings.Join(files, ", "), g.Description)
+						fmt.Fprintf(w, "%s\t%s\t- %s\n", g.ID, strings.Join(files, ", "), g.Description)
 					}
+					w.Flush()
 				} else {
 					gist, err := client.Get(c.Args().First())
 					if err != nil {
 						log.Fatal(err)
 					}
 					for _, f := range gist.Files {
-						fmt.Printf("%20s %10d %s\n", f.FileName, f.Size, f.RawURL)
+						fmt.Fprintf(w, "%s\t%d\t%s\n", f.FileName, f.Size, f.RawURL)
 					}
+					w.Flush()
 				}
 			},
 		},
